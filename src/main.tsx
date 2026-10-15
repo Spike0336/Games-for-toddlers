@@ -1,5 +1,5 @@
 import React, { Component, ReactNode, ErrorInfo } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createRoot, hydrateRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
 
@@ -70,11 +70,30 @@ class RootErrorBoundary extends Component<Props, State> {
   }
 }
 
-const rootEl = document.getElementById('root');
-if (rootEl) {
-  createRoot(rootEl).render(
+function mount() {
+  const rootEl = document.getElementById('root');
+  if (!rootEl) return;
+
+  const appElement = (
     <RootErrorBoundary>
       <App />
     </RootErrorBoundary>
   );
+
+  try {
+    if (rootEl.hasChildNodes()) {
+      hydrateRoot(rootEl, appElement);
+    } else {
+      createRoot(rootEl).render(appElement);
+    }
+  } catch (err) {
+    console.warn('Hydration fallback to createRoot:', err);
+    createRoot(rootEl).render(appElement);
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mount);
+} else {
+  mount();
 }
