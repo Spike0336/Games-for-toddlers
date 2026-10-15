@@ -1,5 +1,5 @@
 import React, { Component, ReactNode, ErrorInfo } from 'react';
-import { createRoot, hydrateRoot } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
 
@@ -29,23 +29,25 @@ class RootErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px',
-          textAlign: 'center',
-          backgroundColor: '#FFFBEB',
-          fontFamily: 'sans-serif'
-        }}>
+        <div
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            textAlign: 'center',
+            backgroundColor: '#FFFBEB',
+            fontFamily: 'system-ui, sans-serif',
+          }}
+        >
           <div style={{ fontSize: '72px', marginBottom: '16px' }}>🦁</div>
           <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#92400E', marginBottom: '8px' }}>
             Animal Friends
           </h1>
           <p style={{ color: '#78350F', marginBottom: '24px', maxWidth: '400px' }}>
-            Let&apos;s get ready to play with our animal friends!
+            Oops! Let&apos;s get ready to play with our animal friends again!
           </p>
           <button
             onClick={() => window.location.reload()}
@@ -58,7 +60,7 @@ class RootErrorBoundary extends Component<Props, State> {
               border: 'none',
               borderRadius: '16px',
               cursor: 'pointer',
-              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'
+              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)',
             }}
           >
             Start Playing 🐾
@@ -71,25 +73,18 @@ class RootErrorBoundary extends Component<Props, State> {
 }
 
 function mount() {
-  const rootEl = document.getElementById('root');
-  if (!rootEl) return;
+  const container = document.getElementById('root');
+  if (!container) return;
 
-  const appElement = (
+  // Clear any fallback loader content so React renders cleanly
+  container.innerHTML = '';
+
+  const root = createRoot(container);
+  root.render(
     <RootErrorBoundary>
       <App />
     </RootErrorBoundary>
   );
-
-  try {
-    if (rootEl.hasChildNodes()) {
-      hydrateRoot(rootEl, appElement);
-    } else {
-      createRoot(rootEl).render(appElement);
-    }
-  } catch (err) {
-    console.warn('Hydration fallback to createRoot:', err);
-    createRoot(rootEl).render(appElement);
-  }
 }
 
 if (document.readyState === 'loading') {

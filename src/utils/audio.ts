@@ -2,6 +2,52 @@ class AudioManager {
   private currentAudio: HTMLAudioElement | null = null;
   private volume: number = 0.9;
   private safetyTimer: NodeJS.Timeout | null = null;
+  private audioCache = new Map<string, HTMLAudioElement>();
+  private audioCtx: AudioContext | null = null;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      const unlock = () => {
+        this.getAudioContext();
+        window.removeEventListener('click', unlock);
+        window.removeEventListener('touchstart', unlock);
+      };
+      window.addEventListener('click', unlock, { passive: true });
+      window.addEventListener('touchstart', unlock, { passive: true });
+    }
+  }
+
+  private getAudioContext(): AudioContext | null {
+    if (typeof window === 'undefined') return null;
+    if (!this.audioCtx) {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (AudioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+    }
+    if (this.audioCtx && this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
+    return this.audioCtx;
+  }
+
+  public preloadSounds(soundFiles: string[]) {
+    if (typeof window === 'undefined') return;
+    soundFiles.forEach((src) => {
+      if (!this.audioCache.has(src)) {
+        try {
+          const a = new Audio();
+          a.preload = 'auto';
+          a.src = src;
+          this.audioCache.set(src, a);
+        } catch {
+          // Safe ignore preload errors
+        }
+      }
+    });
+  }
 
   public setVolume(val: number) {
     this.volume = Math.max(0, Math.min(1, val));
@@ -38,10 +84,10 @@ class AudioManager {
   ) {
     this.stopCurrent();
 
-    // Soft haptic feedback on mobile devices
+    // Soft haptic feedback for toddlers on mobile devices
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
-        navigator.vibrate(40);
+        navigator.vibrate(35);
       } catch {
         // Safe ignore
       }
@@ -61,8 +107,19 @@ class AudioManager {
       if (onEnded) onEnded();
     };
 
-    // Standard HTML5 Audio
-    const audio = new Audio(soundFile);
+    let audio: HTMLAudioElement;
+    if (this.audioCache.has(soundFile)) {
+      audio = this.audioCache.get(soundFile)!;
+      try {
+        audio.currentTime = 0;
+      } catch {
+        // Safe ignore
+      }
+    } else {
+      audio = new Audio(soundFile);
+      this.audioCache.set(soundFile, audio);
+    }
+
     audio.volume = this.volume;
     this.currentAudio = audio;
 
@@ -102,17 +159,14 @@ class AudioManager {
       setTimeout(fireEnded, 1500);
     }
 
-    // Guaranteed safety timeout: Never leave animal stuck in speaking state
-    this.safetyTimer = setTimeout(fireEnded, 2500);
+    // Safety timeout: Never leave animal stuck in speaking state if audio stalls
+    this.safetyTimer = setTimeout(fireEnded, 3000);
   }
 
   public playSuccessFanfare() {
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const ctx = this.getAudioContext();
+      if (!ctx) return;
       const notes = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99]; // C E G C E G
       notes.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
@@ -137,11 +191,8 @@ class AudioManager {
 
   public playPop() {
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const ctx = this.getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -163,11 +214,8 @@ class AudioManager {
 
   public playGentleBoing() {
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const ctx = this.getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -189,11 +237,8 @@ class AudioManager {
 
   private playSynthBeep() {
     try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const ctx = this.getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';

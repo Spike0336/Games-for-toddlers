@@ -23,8 +23,9 @@ export default function App() {
 
   const currentAnimal = ANIMALS[currentIndex] || ANIMALS[0];
 
-  // Cleanup timers on unmount
+  // Preload sounds on mount and cleanup timers on unmount
   useEffect(() => {
+    audioManager.preloadSounds(ANIMALS.map((a) => a.soundFile));
     return () => {
       if (autoAdvanceTimerRef.current) {
         clearTimeout(autoAdvanceTimerRef.current);
