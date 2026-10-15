@@ -1,83 +1,12 @@
 class AudioManager {
-  private audioContext: AudioContext | null = null;
-  private audioBuffers: Map<string, AudioBuffer> = new Map();
-  private currentSource: AudioBufferSourceNode | null = null;
-  private currentHtmlAudio: HTMLAudioElement | null = null;
+  private currentAudio: HTMLAudioElement | null = null;
   private volume: number = 0.9;
   private safetyTimer: NodeJS.Timeout | null = null;
-  private isUnlocked: boolean = false;
-
-  constructor() {
-    // Attempt unlock on first interaction
-    if (typeof window !== 'undefined') {
-      const unlock = () => {
-        this.unlockAudioContext();
-        window.removeEventListener('click', unlock);
-        window.removeEventListener('touchstart', unlock);
-        window.removeEventListener('keydown', unlock);
-      };
-      window.addEventListener('click', unlock, { once: true });
-      window.addEventListener('touchstart', unlock, { once: true });
-      window.addEventListener('keydown', unlock, { once: true });
-    }
-  }
-
-  public unlockAudioContext(): AudioContext | null {
-    try {
-      const ctx = this.getAudioContext();
-      if (ctx && ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-      this.isUnlocked = true;
-      return ctx;
-    } catch {
-      return null;
-    }
-  }
-
-  private getAudioContext(): AudioContext {
-    if (!this.audioContext && typeof window !== 'undefined') {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (AudioCtx) {
-        this.audioContext = new AudioCtx();
-      }
-    }
-    return this.audioContext as AudioContext;
-  }
-
-  public async preloadAll(soundFiles: string[]) {
-    soundFiles.forEach((file) => {
-      this.loadBuffer(file).catch(() => {});
-    });
-  }
-
-  private async loadBuffer(soundFile: string): Promise<AudioBuffer | null> {
-    if (this.audioBuffers.has(soundFile)) {
-      return this.audioBuffers.get(soundFile)!;
-    }
-
-    try {
-      const response = await fetch(soundFile);
-      if (!response.ok) return null;
-      const arrayBuffer = await response.arrayBuffer();
-      const ctx = this.getAudioContext();
-      if (!ctx) return null;
-
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-      this.audioBuffers.set(soundFile, audioBuffer);
-      return audioBuffer;
-    } catch (err) {
-      console.warn('Could not decode audio buffer, will fallback to HTMLAudio:', err);
-      return null;
-    }
-  }
 
   public setVolume(val: number) {
     this.volume = Math.max(0, Math.min(1, val));
-    if (this.currentHtmlAudio) {
-      this.currentHtmlAudio.volume = this.volume;
+    if (this.currentAudio) {
+      this.currentAudio.volume = this.volume;
     }
   }
 
@@ -91,24 +20,14 @@ class AudioManager {
       this.safetyTimer = null;
     }
 
-    if (this.currentSource) {
+    if (this.currentAudio) {
       try {
-        this.currentSource.stop();
-        this.currentSource.disconnect();
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
       } catch {
-        // Source already stopped
+        // Safe ignore
       }
-      this.currentSource = null;
-    }
-
-    if (this.currentHtmlAudio) {
-      try {
-        this.currentHtmlAudio.pause();
-        this.currentHtmlAudio.currentTime = 0;
-      } catch {
-        // Ignore
-      }
-      this.currentHtmlAudio = null;
+      this.currentAudio = null;
     }
   }
 
@@ -118,14 +37,13 @@ class AudioManager {
     onStart?: () => void
   ) {
     this.stopCurrent();
-    this.unlockAudioContext();
 
-    // Trigger gentle haptic vibration on mobile
+    // Soft haptic feedback on mobile devices
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try {
         navigator.vibrate(40);
       } catch {
-        // Ignore
+        // Safe ignore
       }
     }
 
@@ -137,75 +55,34 @@ class AudioManager {
         clearTimeout(this.safetyTimer);
         this.safetyTimer = null;
       }
+      if (this.currentAudio === audio) {
+        this.currentAudio = null;
+      }
       if (onEnded) onEnded();
     };
 
-    // 1. Try Web Audio buffer first (instant, zero delay, works in all tabs)
-    const ctx = this.getAudioContext();
-    const cachedBuffer = this.audioBuffers.get(soundFile);
+    // Standard HTML5 Audio
+    const audio = new Audio(soundFile);
+    audio.volume = this.volume;
+    this.currentAudio = audio;
 
-    if (ctx && cachedBuffer) {
-      try {
-        if (ctx.state === 'suspended') {
-          ctx.resume().catch(() => {});
-        }
+    const onAudioEnded = () => {
+      audio.removeEventListener('ended', onAudioEnded);
+      audio.removeEventListener('error', onAudioError);
+      fireEnded();
+    };
 
-        const source = ctx.createBufferSource();
-        source.buffer = cachedBuffer;
+    const onAudioError = () => {
+      audio.removeEventListener('ended', onAudioEnded);
+      audio.removeEventListener('error', onAudioError);
+      this.playSynthBeep();
+      fireEnded();
+    };
 
-        const gainNode = ctx.createGain();
-        gainNode.gain.setValueAtTime(this.volume, ctx.currentTime);
+    audio.addEventListener('ended', onAudioEnded, { once: true });
+    audio.addEventListener('error', onAudioError, { once: true });
 
-        source.connect(gainNode);
-        gainNode.connect(ctx.destination);
-
-        this.currentSource = source;
-
-        source.onended = () => {
-          if (this.currentSource === source) {
-            this.currentSource = null;
-          }
-          fireEnded();
-        };
-
-        source.start(0);
-        if (onStart) onStart();
-
-        // Safety fallback timer matching buffer duration + 100ms
-        const safeDurationMs = Math.min((cachedBuffer.duration || 2.0) * 1000, 3200);
-        this.safetyTimer = setTimeout(fireEnded, safeDurationMs);
-        return;
-      } catch (e) {
-        console.warn('Web Audio source.start failed, falling back to HTMLAudio:', e);
-      }
-    }
-
-    // 2. Fallback to HTML5 Audio
     try {
-      const audio = new Audio(soundFile);
-      audio.volume = this.volume;
-      this.currentHtmlAudio = audio;
-
-      const onHtmlEnded = () => {
-        audio.removeEventListener('ended', onHtmlEnded);
-        audio.removeEventListener('error', onHtmlError);
-        if (this.currentHtmlAudio === audio) {
-          this.currentHtmlAudio = null;
-        }
-        fireEnded();
-      };
-
-      const onHtmlError = () => {
-        audio.removeEventListener('ended', onHtmlEnded);
-        audio.removeEventListener('error', onHtmlError);
-        // Play synthesized chime so child still hears feedback
-        this.playSuccessBeep();
-        fireEnded();
-      };
-
-      audio.addEventListener('ended', onHtmlEnded, { once: true });
-      audio.addEventListener('error', onHtmlError, { once: true });
-
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise
@@ -213,29 +90,29 @@ class AudioManager {
             if (onStart) onStart();
           })
           .catch(() => {
-            // Browser autoplay policy might need another tap
-            this.playSuccessBeep();
-            setTimeout(fireEnded, 1600);
+            // Autoplay policy or interaction needed
+            this.playSynthBeep();
+            setTimeout(fireEnded, 1500);
           });
+      } else {
+        if (onStart) onStart();
       }
-
-      // Safety timeout in case audio hangs
-      this.safetyTimer = setTimeout(fireEnded, 2400);
-
-      // In the background, load buffer into cache for the next tap
-      this.loadBuffer(soundFile).catch(() => {});
     } catch {
-      this.playSuccessBeep();
+      this.playSynthBeep();
       setTimeout(fireEnded, 1500);
     }
+
+    // Guaranteed safety timeout: Never leave animal stuck in speaking state
+    this.safetyTimer = setTimeout(fireEnded, 2500);
   }
 
   public playSuccessFanfare() {
     try {
-      const ctx = this.getAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
       const notes = [261.63, 329.63, 392.0, 523.25, 659.25, 783.99]; // C E G C E G
       notes.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
@@ -254,16 +131,17 @@ class AudioManager {
         osc.stop(ctx.currentTime + idx * 0.08 + 0.4);
       });
     } catch {
-      // Ignore
+      // Safe ignore
     }
   }
 
   public playPop() {
     try {
-      const ctx = this.getAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -279,16 +157,17 @@ class AudioManager {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.09);
     } catch {
-      // Ignore
+      // Safe ignore
     }
   }
 
   public playGentleBoing() {
     try {
-      const ctx = this.getAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -304,16 +183,17 @@ class AudioManager {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.2);
     } catch {
-      // Ignore
+      // Safe ignore
     }
   }
 
-  private playSuccessBeep() {
+  private playSynthBeep() {
     try {
-      const ctx = this.getAudioContext();
-      if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'triangle';
@@ -329,7 +209,7 @@ class AudioManager {
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + 0.3);
     } catch {
-      // Ignore
+      // Safe ignore
     }
   }
 }

@@ -23,12 +23,6 @@ export default function App() {
 
   const currentAnimal = ANIMALS[currentIndex] || ANIMALS[0];
 
-  // Preload sound files
-  useEffect(() => {
-    const soundUrls = ANIMALS.map((a) => a.soundFile);
-    audioManager.preloadAll(soundUrls);
-  }, []);
-
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -45,37 +39,69 @@ export default function App() {
     }
   };
 
-  const handleNextAnimal = useCallback((andPlay = true) => {
-    clearAutoTimer();
-    setIsSpeaking(false);
-    audioManager.stopCurrent();
+  const triggerAnimalSound = useCallback(
+    (animal: AnimalInfo, shouldAutoAdvance: boolean) => {
+      clearAutoTimer();
+      setIsSpeaking(true);
 
-    setCurrentIndex((prev) => {
-      const nextIdx = (prev + 1) % ANIMALS.length;
-      if (andPlay) {
-        setTimeout(() => {
-          triggerAnimalSound(ANIMALS[nextIdx], true);
-        }, 120);
-      }
-      return nextIdx;
-    });
-  }, []);
+      audioManager.playAnimalSound(
+        animal.soundFile,
+        () => {
+          // Sound finished
+          setIsSpeaking(false);
 
-  const handlePrevAnimal = useCallback((andPlay = true) => {
-    clearAutoTimer();
-    setIsSpeaking(false);
-    audioManager.stopCurrent();
+          // Transition to a DIFFERENT animal as requested
+          if (shouldAutoAdvance) {
+            autoAdvanceTimerRef.current = setTimeout(() => {
+              setCurrentIndex((prev) => (prev + 1) % ANIMALS.length);
+            }, 800);
+          }
+        },
+        () => {
+          setIsSpeaking(true);
+        }
+      );
+    },
+    []
+  );
 
-    setCurrentIndex((prev) => {
-      const prevIdx = (prev - 1 + ANIMALS.length) % ANIMALS.length;
-      if (andPlay) {
-        setTimeout(() => {
-          triggerAnimalSound(ANIMALS[prevIdx], true);
-        }, 120);
-      }
-      return prevIdx;
-    });
-  }, []);
+  const handleNextAnimal = useCallback(
+    (andPlay = true) => {
+      clearAutoTimer();
+      setIsSpeaking(false);
+      audioManager.stopCurrent();
+
+      setCurrentIndex((prev) => {
+        const nextIdx = (prev + 1) % ANIMALS.length;
+        if (andPlay) {
+          setTimeout(() => {
+            triggerAnimalSound(ANIMALS[nextIdx], autoAdvance);
+          }, 80);
+        }
+        return nextIdx;
+      });
+    },
+    [autoAdvance, triggerAnimalSound]
+  );
+
+  const handlePrevAnimal = useCallback(
+    (andPlay = true) => {
+      clearAutoTimer();
+      setIsSpeaking(false);
+      audioManager.stopCurrent();
+
+      setCurrentIndex((prev) => {
+        const prevIdx = (prev - 1 + ANIMALS.length) % ANIMALS.length;
+        if (andPlay) {
+          setTimeout(() => {
+            triggerAnimalSound(ANIMALS[prevIdx], autoAdvance);
+          }, 80);
+        }
+        return prevIdx;
+      });
+    },
+    [autoAdvance, triggerAnimalSound]
+  );
 
   const handleRandomAnimal = useCallback(() => {
     clearAutoTimer();
@@ -88,11 +114,11 @@ export default function App() {
         nextIdx = (nextIdx + 1) % ANIMALS.length;
       }
       setTimeout(() => {
-        triggerAnimalSound(ANIMALS[nextIdx], true);
-      }, 120);
+        triggerAnimalSound(ANIMALS[nextIdx], autoAdvance);
+      }, 80);
       return nextIdx;
     });
-  }, []);
+  }, [autoAdvance, triggerAnimalSound]);
 
   const handleSelectAnimal = (animal: AnimalInfo) => {
     const idx = ANIMALS.findIndex((a) => a.id === animal.id);
@@ -102,43 +128,20 @@ export default function App() {
       audioManager.stopCurrent();
       setCurrentIndex(idx);
       setTimeout(() => {
-        triggerAnimalSound(animal, true);
-      }, 150);
+        triggerAnimalSound(animal, autoAdvance);
+      }, 100);
     }
   };
 
-  const triggerAnimalSound = (animal: AnimalInfo, shouldAutoAdvance = autoAdvance) => {
-    clearAutoTimer();
-    setIsSpeaking(true);
-
-    audioManager.playAnimalSound(
-      animal.soundFile,
-      () => {
-        // Sound completed
-        setIsSpeaking(false);
-
-        // After the animal speaks, transition to a DIFFERENT animal as requested!
-        if (shouldAutoAdvance) {
-          autoAdvanceTimerRef.current = setTimeout(() => {
-            handleNextAnimal(false);
-          }, 800);
-        }
-      },
-      () => {
-        setIsSpeaking(true);
-      }
-    );
-  };
-
-  // When child taps the animal stage:
+  // When child taps the animal:
   const handleStageClick = () => {
-    // If it's already speaking and the child clicks again, immediately advance to the next animal!
+    // If already speaking, skip immediately to the next animal!
     if (isSpeaking) {
       handleNextAnimal(true);
       return;
     }
 
-    // Play current animal and queue the next animal after it finishes
+    // Play current animal and queue the next animal
     triggerAnimalSound(currentAnimal, true);
   };
 
@@ -203,7 +206,7 @@ export default function App() {
             <AnimalStage
               animal={currentAnimal}
               isSpeaking={isSpeaking}
-              onPlaySound={() => handleStageClick()}
+              onPlaySound={handleStageClick}
               onNextAnimal={() => handleNextAnimal(true)}
               onPrevAnimal={() => handlePrevAnimal(true)}
               onRandomAnimal={handleRandomAnimal}
@@ -235,7 +238,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Quiet, clean Footer */}
+      {/* Footer */}
       <footer className="w-full border-t border-amber-200/60 bg-white/60 py-3 text-center text-xs text-slate-500 font-medium">
         <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>Animal Friends · 16 Real Animal Vocalizations &amp; Animations</span>

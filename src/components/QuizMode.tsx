@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import confetti from 'canvas-confetti';
 import { Volume2, Sparkles, RefreshCw, Trophy, Star } from 'lucide-react';
 import { AnimalInfo } from '../types';
 import { audioManager } from '../utils/audio';
@@ -71,22 +70,11 @@ export const QuizMode: React.FC<Props> = ({ animals, onPlaySound }) => {
         setSpeakingAnimal(null);
       });
 
-      try {
-        confetti({
-          particleCount: 50,
-          spread: 80,
-          origin: { y: 0.5 },
-          colors: ['#F59E0B', '#10B981', '#3B82F6', '#EC4899', '#8B5CF6'],
-        });
-      } catch {
-        // Safe fallback
-      }
-
       // Auto-progress after 3 seconds
       setTimeout(() => {
         setRound((r) => r + 1);
         startNewRound();
-      }, 3200);
+      }, 3000);
     } else {
       // Gentle encouragement
       setIsCorrect(false);
